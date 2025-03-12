@@ -1,0 +1,320 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Rotating DNA</title>
+
+  <style>
+    body { margin: 0; overflow: hidden; background-color: #000000; }
+    canvas { display: block; }
+    .controls {
+      position: absolute;
+      top: 10px;
+      left: 10px;
+      color: white;
+      background-color: rgba(0,0,0,0.7);
+      padding: 10px;
+      border-radius: 5px;
+      font-family: Arial, sans-serif;
+      z-index: 100;
+    }
+    .controls button {
+      margin: 5px;
+      padding: 5px 10px;
+      cursor: pointer;
+    }
+    .slider-container {
+      margin-top: 10px;
+    }
+    .slider-container label {
+      display: block;
+      margin-bottom: 5px;
+    }
+  </style>
+</head>
+<body>
+<div class="controls">
+  <div class="button-group">
+    <button id="speedDown">Slower</button>
+    <button id="speedUp">Faster</button>
+  </div>
+  <button id="rotateToggle">Pause Rotation</button>
+  <button id="zoomIn">Zoom In</button>
+  <button id="zoomOut">Zoom Out</button>
+  <div class="slider-container">
+    <label for="cameraY">Scroll DNA:</label>
+    <input type="range" id="cameraY" min="-100" max="100" value="0" step="1">
+  </div>
+</div>
+
+<script type="module">
+  import * as THREE from 'https://cdnjs.cloudflare.com/ajax/libs/three.js/0.158.0/three.module.min.js';
+
+  async function generateDNA() {
+    // Generate a very long DNA sequence
+    const basePairs = [];
+    const bases = ['A', 'T', 'G', 'C'];
+
+    // Generate 500 random base pairs - this will make the DNA extend far beyond the screen
+    for (let i = 0; i < 500; i++) {
+      const base1 = bases[Math.floor(Math.random() * 4)];
+      let base2;
+
+      // Create complementary base pair
+      if (base1 === 'A') base2 = 'T';
+      else if (base1 === 'T') base2 = 'A';
+      else if (base1 === 'C') base2 = 'G';
+      else if (base1 === 'G') base2 = 'C';
+
+      basePairs.push([base1, base2]);
+    }
+
+    return basePairs;
+  }
+
+  async function init() {
+    // Create scene
+    const scene = new THREE.Scene();
+    scene.background = new THREE.Color(0x000000);
+    scene.fog = new THREE.Fog(0x000000, 15, 100);
+
+    // Create camera
+    const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+    camera.position.z = 15;
+
+    // Create renderer
+    const renderer = new THREE.WebGLRenderer({ antialias: true });
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    document.body.appendChild(renderer.domElement);
+
+    // Add lights
+    const ambientLight = new THREE.AmbientLight(0x404040);
+    scene.add(ambientLight);
+
+    const directionalLight = new THREE.DirectionalLight(0xffffff, 1);
+    directionalLight.position.set(1, 1, 1);
+    scene.add(directionalLight);
+
+    const pointLight1 = new THREE.PointLight(0x3366ff, 1, 50);
+    pointLight1.position.set(10, 0, 10);
+    scene.add(pointLight1);
+
+    const pointLight2 = new THREE.PointLight(0xff6633, 1, 50);
+    pointLight2.position.set(-10, 0, 10);
+    scene.add(pointLight2);
+
+    // Create DNA helix
+    const helix = new THREE.Group();
+    const dnaData = await generateDNA();
+
+    // Predefine geometries to improve performance
+    const sphereGeometry = new THREE.SphereGeometry(0.2, 12, 12);
+    const boxGeometry = new THREE.BoxGeometry(0.3, 0.3, 0.3);
+
+    // Create DNA bases with instanced meshes for better performance
+    const baseInstances = {};
+    const baseTypes = ['A', 'T', 'G', 'C'];
+    const baseColors = {
+      'A': 0xff3333,
+      'T': 0x33ff33,
+      'G': 0x3333ff,
+      'C': 0xffff33
+    };
+
+    // Create backbone cylinder geometry
+    const backboneRadius = 0.08;
+    const backboneMaterial = new THREE.MeshPhongMaterial({
+      color: 0x999999,
+      shininess: 30
+    });
+
+    // Create DNA bases
+    dnaData.forEach((pair, i) => {
+      // First strand base
+      const base1 = pair[0];
+      const base2 = pair[1];
+
+      // Create materials
+      const material1 = new THREE.MeshPhongMaterial({
+        color: baseColors[base1],
+        shininess: 100,
+        specular: 0x222222
+      });
+
+      const material2 = new THREE.MeshPhongMaterial({
+        color: baseColors[base2],
+        shininess: 100,
+        specular: 0x222222
+      });
+
+      // Select geometry based on base type
+      const geometry1 = (base1 === 'A' || base1 === 'T') ? sphereGeometry : boxGeometry;
+      const geometry2 = (base2 === 'A' || base2 === 'T') ? sphereGeometry : boxGeometry;
+
+      const baseMesh1 = new THREE.Mesh(geometry1, material1);
+      const baseMesh2 = new THREE.Mesh(geometry2, material2);
+
+      // Position bases in a helical pattern - adjusted to be tighter and longer
+      const angle = i * 0.3;
+      const radius = 2.5;
+      const height = i * 0.3;
+
+      baseMesh1.position.set(
+        Math.sin(angle) * radius,
+        height - 75, // Start below screen
+        Math.cos(angle) * radius
+      );
+
+      baseMesh2.position.set(
+        -Math.sin(angle) * radius,
+        height - 75,
+        -Math.cos(angle) * radius
+      );
+
+      // Add connecting line between base pairs
+      const start = baseMesh1.position;
+      const end = baseMesh2.position;
+      const direction = new THREE.Vector3().subVectors(end, start);
+      const length = direction.length();
+
+      const connectorGeometry = new THREE.CylinderGeometry(0.05, 0.05, length, 8);
+      const connectorMaterial = new THREE.MeshBasicMaterial({ color: 0xcccccc });
+      const connector = new THREE.Mesh(connectorGeometry, connectorMaterial);
+
+      // Orient and position the connector correctly
+      connector.position.copy(start.clone().add(end).multiplyScalar(0.5));
+      connector.lookAt(end);
+      connector.rotateX(Math.PI / 2);
+
+      helix.add(baseMesh1);
+      helix.add(baseMesh2);
+      helix.add(connector);
+
+      // Only add backbone segments every 2 steps for performance
+      if (i % 2 === 0 && i < dnaData.length - 1) {
+        // Create backbones connecting to the next segment
+        const nextAngle = (i+1) * 0.3;
+        const nextHeight = (i+1) * 0.3;
+
+        const backbone1Start = new THREE.Vector3(
+          Math.sin(angle) * radius,
+          height - 75,
+          Math.cos(angle) * radius
+        );
+
+        const backbone1End = new THREE.Vector3(
+          Math.sin(nextAngle) * radius,
+          nextHeight - 75,
+          Math.cos(nextAngle) * radius
+        );
+
+        const backbone2Start = new THREE.Vector3(
+          -Math.sin(angle) * radius,
+          height - 75,
+          -Math.cos(angle) * radius
+        );
+
+        const backbone2End = new THREE.Vector3(
+          -Math.sin(nextAngle) * radius,
+          nextHeight - 75,
+          -Math.cos(nextAngle) * radius
+        );
+
+        // Create backbone 1
+        const backbone1Direction = new THREE.Vector3().subVectors(backbone1End, backbone1Start);
+        const backbone1Length = backbone1Direction.length();
+        const backbone1Geometry = new THREE.CylinderGeometry(backboneRadius, backboneRadius, backbone1Length, 8);
+        const backbone1 = new THREE.Mesh(backbone1Geometry, backboneMaterial);
+
+        backbone1.position.copy(backbone1Start.clone().add(backbone1End).multiplyScalar(0.5));
+        backbone1.lookAt(backbone1End);
+        backbone1.rotateX(Math.PI / 2);
+
+        // Create backbone 2
+        const backbone2Direction = new THREE.Vector3().subVectors(backbone2End, backbone2Start);
+        const backbone2Length = backbone2Direction.length();
+        const backbone2Geometry = new THREE.CylinderGeometry(backboneRadius, backboneRadius, backbone2Length, 8);
+        const backbone2 = new THREE.Mesh(backbone2Geometry, backboneMaterial);
+
+        backbone2.position.copy(backbone2Start.clone().add(backbone2End).multiplyScalar(0.5));
+        backbone2.lookAt(backbone2End);
+        backbone2.rotateX(Math.PI / 2);
+
+        helix.add(backbone1);
+        helix.add(backbone2);
+      }
+    });
+
+    scene.add(helix);
+
+    // Controls variables
+    let isRotating = true;
+    let rotationSpeed = 0.008;
+    let cameraYPosition = 0;
+
+    // Control buttons
+    document.getElementById('rotateToggle').addEventListener('click', function() {
+      isRotating = !isRotating;
+      this.textContent = isRotating ? 'Pause Rotation' : 'Resume Rotation';
+    });
+
+    document.getElementById('zoomIn').addEventListener('click', function() {
+      if (camera.position.z > 5) {
+        camera.position.z -= 2;
+      }
+
+    });
+
+
+      document.getElementById('speedUp').addEventListener('click', function() {
+        rotationSpeed = Math.min(rotationSpeed * 1.5, 0.05);
+      });
+
+      document.getElementById('speedDown').addEventListener('click', function() {
+        rotationSpeed = Math.max(rotationSpeed * 0.7, 0.001);
+      });
+
+
+
+    document.getElementById('zoomOut').addEventListener('click', function() {
+      if (camera.position.z < 30) {
+        camera.position.z += 2;
+      }
+    });
+
+    // Camera Y position slider
+    const cameraYSlider = document.getElementById('cameraY');
+    cameraYSlider.addEventListener('input', function() {
+      cameraYPosition = parseFloat(this.value);
+    });
+
+    // Handle window resize
+    window.addEventListener('resize', () => {
+      camera.aspect = window.innerWidth / window.innerHeight;
+      camera.updateProjectionMatrix();
+      renderer.setSize(window.innerWidth, window.innerHeight);
+    });
+
+    // Animation loop
+    function animate() {
+      requestAnimationFrame(animate);
+
+      // Update camera position based on slider
+      camera.position.y = cameraYPosition;
+
+      if (isRotating) {
+        helix.rotation.y += rotationSpeed;
+      }
+
+      renderer.render(scene, camera);
+    }
+
+    animate();
+  }
+
+  // Initialize
+  document.addEventListener('DOMContentLoaded', init);
+</script>
+</body>
+</html>
